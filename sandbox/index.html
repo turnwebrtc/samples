@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="description" content="WebRTC TURN server sandbox" />
+    <meta
+      name="viewport"
+      content="width=device-width, user-scalable=yes, initial-scale=1, maximum-scale=1"
+    />
+    <meta itemprop="description" content="Webrtc example" />
+    <meta itemprop="image" content="../../../images/webrtc-icon-192x192.png" />
+    <meta itemprop="name" content="Webrtc example" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta id="theme-color" name="theme-color" content="#ffffff" />
+
+    <base target="_blank" />
+
+    <title>WebRTC sandbox</title>
+
+    <style>
+    body {
+      background: brown;
+      color: #ececec;
+      font-family: monospace;
+    }
+
+    a {
+      color: #ececec;
+      text-decoration: underline;
+    }
+    a:hover, a:focus {
+      color: #fff;
+    }
+
+    .tx-msg {
+      color: #7da8ff;
+    }
+    .rx-msg {
+      color: #2bff2b;
+    }
+
+    .box {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      margin-top: 10px;
+    }
+    .box > div {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    #remoteVideos {
+      display: flex;
+      flex-direction: row;
+      flex-wrap: nowrap;
+      width: 100%;
+      height: auto;
+      flex: 1 1 auto;
+    }
+    .remoteVideo {
+      display: flex;
+      flex: 1;
+      min-width: 0;
+      padding: 10px;
+      flex-direction: column;
+    }
+
+    #dataChannelTextField {
+      color: white;
+      font-family: "Courier New";
+      background: #2b2424;
+      border: 1px solid #000;
+      width: 100%;
+      max-width: 700px;
+      height: 300px;
+      overflow-y: scroll;
+    }
+
+    #apiKey-textbox {
+      width: 280px;
+    }
+
+    ::-webkit-scrollbar-thumb {
+      background-color: #4c4c4c;
+    }
+    ::-webkit-scrollbar {
+      width: 10px;
+      background-color: #3ecf62;
+    }
+    </style>
+  </head>
+
+  <body>
+    <div id="container">
+
+      <h1>TurnWebrtc Sandbox</h1>
+      <p>
+        This page lets you spin up a peer‑to‑peer or TURN‑relayed WebRTC
+        connection in seconds. It’s backed by the public demo API key so anyone
+        landing here (e.g. from Reddit or Hacker News) can try it instantly.
+        Replace <code>demo-api-key</code> with a key from
+        <a href="https://turnwebrtc.com" target="_blank">turnwebrtc.com</a>
+        to get your own private namespace & production traffic.
+        <a href="https://github.com/turnwebrtc/turnwebrtc-examples" target="_blank">view source</a>
+      </p>
+
+      <video
+        id="localVideo"
+        style="transform: scaleX(-1)"
+        playsinline
+        autoplay
+        muted
+      ></video>
+      <div id="remoteVideos">
+      </div>
+
+      <div class="box">
+        <div>
+          <label for="room-textbox">Room:</label>
+          <input field="text" id="room-textbox" placeholder="room" autocomplete="off" />
+        </div>
+        <div>
+          <label for="apiKey-textbox">API&nbsp;Key:</label>
+          <input field="text" id="apiKey-textbox" placeholder="try 'demo-api-key'" value="demo-api-key" size="24" autocomplete="off" />
+          <br>
+          <a href="https://turnwebrtc.com/api-docs">get your private key at turnwebrtc.com</a>
+        </div>
+        <div>
+          <label for="offer-datachannel">Offer data channel:</label>
+          <input type="checkbox" id="offer-datachannel" autocomplete="off">
+        </div>
+        <div>
+          <label for="offer-localvideo">Offer local video:</label>
+          <input type="checkbox" id="offer-localvideo" checked autocomplete="off">
+        </div>
+        <div>
+          <label for="offer-receivevideo">Offer to receive video:</label>
+          <input type="checkbox" id="offer-receivevideo" autocomplete="off">
+        </div>
+        <div>
+          <label for="offer-relayonly">Relay only:</label>
+          <input type="checkbox" id="offer-relayonly" autocomplete="off">
+        </div>
+        <div>
+          <label for="offer-prefersofferer">Prefers offerer:</label>
+          <input type="checkbox" id="offer-prefersofferer" checked autocomplete="off">
+        </div>
+        <div>
+          <button id="startButton">Start</button>
+          <button id="hangupButton" disabled>Hang Up</button>
+        </div>
+        <div>
+          <span>Click the start button to make a call</span>
+        </div>
+        <div>
+          <span>Data channel log:</span>
+        </div>
+        <div>
+          <div id="dataChannelTextField" autocomplete="off"></div>
+        </div>
+        <div>
+          <input field="text" id="message-textbox" placeholder="message" autocomplete="off">
+          <button id="sendMessageButton" disabled>Send message</button>
+          <button onclick="clearDatachannelLog()">Clear</button>
+        </div>
+      </div>
+    </div>
+    <script src="index.js"></script>
+  </body>
+</html>
