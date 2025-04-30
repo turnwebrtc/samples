@@ -1,302 +1,168 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
-<head>
-  <meta charset="UTF-8" />
-  <title>Simple WebRTC DataChannel Demo</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <style>
-    body { font-family: sans-serif; background: #fff; color: #222; margin: 0; padding: 2em; }
-    .row { margin-bottom: 1em; }
-    label { margin-right: 0.5em; }
-    input[type="text"] { width: 200px; }
-    #log { background: #f3f3f3; border: 1px solid #ccc; height: 180px; overflow-y: auto; padding: 0.5em; font-family: monospace; margin-bottom: 1em; }
-    .tx { color: #2563eb; }
-    .rx { color: #059669; }
-    .error { color: #dc2626; }
-    button { margin-right: 0.5em; }
-  </style>
-</head>
-<body>
-  <div style="max-width: 600px; margin: 0 auto;">
-    <a href="https://github.com/turnwebrtc/samples/tree/main/simple-datachannel" target="_blank">
-      view source on GitHub
-    </a>
-    <h2>Simple WebRTC DataChannel Demo</h2>
-    <p>
-      This page lets you quickly try a peer-to-peer or TURN-relayed WebRTC data channel.
-      Use the default <code>demo-api-key</code> or get your own API key at
-      <a href="https://turnwebrtc.com/api-docs" target="_blank">turnwebrtc.com</a>
-      for private rooms and production use.
-    </p>
-    <p>
-      Open this page on two devices and join the same room to test.
-    </p>
-    <br />
-    <div class="row">
-      <label>API Key:</label>
-      <input type="text" id="apiKey" placeholder="demo-api-key" value="demo-api-key">
-    </div>
-    <div class="row">
-      <label>Room:</label>
-      <input type="text" id="room" placeholder="room" value="asdf">
-    </div>
-    <div class="row" style="display: none;">
-      <label><input type="checkbox" id="relayOnly">Relay only</label>
-    </div>
-    <div class="row">
-      <button id="connectBtn">Connect</button>
-      <button id="reloadBtn">Reload</button>
-    </div>
-    <div id="log"></div>
-    <div class="row">
-      <input type="text" id="msg" placeholder="Type message..." autocomplete="off">
-      <button id="sendBtn" disabled>Send</button>
-    </div>
-  </div>
-  <script>
-    // --- Minimal signaling and datachannel logic ---
-    let pc, dc, ws;
-    const logDiv = document.getElementById('log');
-    const connectBtn = document.getElementById('connectBtn');
-    const reloadBtn = document.getElementById('reloadBtn');
-    const sendBtn = document.getElementById('sendBtn');
-    const apiKeyInput = document.getElementById('apiKey');
-    const roomInput = document.getElementById('room');
-    const msgInput = document.getElementById('msg');
-    const relayOnlyInput = document.getElementById('relayOnly');
-    msgInput.value = "turnwebrtc" + Math.floor(Math.random() * 999 + 1);
-    let pendingCandidates = [];
+  <head>
+    <meta charset="utf-8">
+    <title>Simple WebRTC Data-Channel</title>
+    <meta name="viewport" content="width=device-width,initial-scale=1">
+    <style>
+      body{font-family:sans-serif;margin:2rem auto;max-width:560px;padding:0 1rem;color:#111}
+      label{display:block;margin-top:1rem}
+      input[type="text"]{width:100%;max-width:300px}
+      #chat{margin-top:1.2rem;height:160px;overflow:auto;border:1px solid #ddd;padding:.5rem;font-family:monospace;background:#fafafa}
+      .tx{color:#2563eb}.rx{color:#059669}
+      button{margin-top:1rem}
+    </style>
+  </head>
+  <body>
+    <h2>Simple WebRTC Data-Channel</h2>
+    <p>This is the bare-minimum code required to open a WebRTC data-channel using
+    <a href="https://turnwebrtc.com" target="_blank">TurnWebRTC</a> for both signaling and TURN servers.
+    Copy it into your own page and you're ready to go</p>
 
-    // Hide reload button initially
-    reloadBtn.style.display = "none";
+    <label>API Key
+      <input type="text" id="apiKey" value="demo-api-key" placeholder="demo-api-key">
+    </label>
+    <label>Room
+      <input type="text" id="room" value="room1" placeholder="room name">
+    </label>
 
-    function log(msg, cls) {
-      console.log(cls, msg);
-      const div = document.createElement('div');
-      if (cls) div.className = cls;
-      div.textContent = msg;
-      logDiv.appendChild(div);
-      logDiv.scrollTop = logDiv.scrollHeight;
-    }
+    <button id="connectBtn">Connect</button>
 
-    function setUI(connected) {
-      // Hide connect button after first connect
-      if (connected) {
-        connectBtn.style.display = "none";
-        reloadBtn.style.display = "";
-        relayOnlyInput.disabled = true;
-      }
-      apiKeyInput.disabled = connected;
-      roomInput.disabled = connected;
-    }
+    <pre id="chat"></pre>
 
-    connectBtn.onclick = async () => {
-      const apiKey = apiKeyInput.value.trim();
-      const room = roomInput.value.trim();
-      if (!apiKey || !room) {
-        alert("Enter API key and room");
-        return;
-      }
-      setUI(true);
-      logDiv.innerHTML = "";
-      // Connect signaling
-      ws = new WebSocket(
-        "wss://turnwebrtc.com/api/relay/" +
-        encodeURIComponent(room) +
-        "?apikey=" + encodeURIComponent(apiKey)
-      );
-      ws.onclose = () => log("[ws disconnected]", "tx");
-      ws.onmessage = async (event) => {
-        const msg = JSON.parse(event.data);
-        console.log("msg", msg);
-        if (msg.role === "o") {
-          await createPeer(true);
-          const offer = await pc.createOffer();
-          log(`[created offer: ${offer.sdp}]`, "tx");
-          await pc.setLocalDescription(offer);
-          ws.send(JSON.stringify({ type: "offer", sdp: offer.sdp }));
-          return;
-        }
-        switch (msg.type) {
-          case "offer":
-            log(`[received offer: ${msg.sdp}]`, "rx");
-            await createPeer(false);
-            try {
-              // Set remote description and wait for completion
-              await pc.setRemoteDescription({ type: "offer", sdp: msg.sdp });
-            } catch (e) {
-              log(`[error setting remote description: ${e.message}]`, "error");
-              break;
-            }
+    <label id="msgWrapper" style="display:none;">Message
+      <input type="text" id="msg" autocomplete="off">
+      <button id="sendBtn">Send</button>
+    </label>
 
-            let answer;
-            try {
-              answer = await pc.createAnswer();
-            } catch (e) {
-              log(`[error creating answer: ${e.message}]`, "error");
-              break;
-            }
-            log(`[created answer: ${answer.sdp}]`, "tx");
+    <script>
+      const apiKeyEl = document.getElementById('apiKey');
+      const roomEl   = document.getElementById('room');
+      const connectBtn = document.getElementById('connectBtn');
+      const chatEl  = document.getElementById('chat');
+      const msgWrapper = document.getElementById('msgWrapper');
+      const msgEl   = document.getElementById('msg');
+      const sendBtn = document.getElementById('sendBtn');
 
-            try {
-              ws.send(JSON.stringify({ type: "answer", sdp: answer.sdp }));
-            } catch (e) {
-              log(`[error sending answer: ${e.message}]`, "error");
-              break;
-            }
+      let pc, dc, ws;
+      let pendingCandidates = [];
 
-            try {
-              await pc.setLocalDescription(answer);
-            } catch (e) {
-              log(`[error setting local description: ${e.message}]`, "error");
-            }
+      const log = (txt, cls='') => {
+        console.log(txt);
+        const span = document.createElement('span');
+        span.textContent = txt + '\n';
+        if(cls) span.className = cls;
+        chatEl.appendChild(span);
+        chatEl.scrollTop = chatEl.scrollHeight;
+      };
 
-            try {
-              // Only process candidates if remote description is set
+      const fetchTurn = async (key) => {
+        try {
+          const r = await fetch('https://turnwebrtc.com/api/credentials', {
+            headers:{ Authorization: 'Basic ' + btoa(key + ':') }
+          });
+          return r.ok ? await r.json() : [];
+        } catch { return []; }
+      };
+
+      connectBtn.onclick = async () => {
+        if (pc || ws) { window.location.reload(); return; }
+
+        const apiKey = apiKeyEl.value.trim();
+        const room   = roomEl.value.trim();
+        if(!apiKey || !room){ alert('Enter API key and room'); return; }
+
+        connectBtn.textContent = 'Hang up';
+        apiKeyEl.disabled = roomEl.disabled = true;
+
+        ws = new WebSocket(`wss://turnwebrtc.com/api/relay/${encodeURIComponent(room)}?apikey=${encodeURIComponent(apiKey)}`);
+
+        ws.onmessage = async ({data}) => {
+          const msg = JSON.parse(data);
+          if (msg.role === 'o') {
+            await createPeer(true);
+            const offer = await pc.createOffer();
+            await pc.setLocalDescription(offer);
+            ws.send(JSON.stringify({type:'offer', sdp:offer.sdp}));
+            return;
+          }
+          switch(msg.type){
+            case 'offer':
+              await createPeer(false);
+              await pc.setRemoteDescription({type:'offer', sdp:msg.sdp});
+              const ans = await pc.createAnswer();
+              await pc.setLocalDescription(ans);
+              ws.send(JSON.stringify({type:'answer', sdp:ans.sdp}));
+              // Process any queued candidates after setting remoteDescription
               if (pc.remoteDescription) {
                 for (const c of pendingCandidates) {
                   try {
                     await pc.addIceCandidate(c);
                   } catch (e) {
-                    log(`[error adding ICE candidate: ${e.message}]`, "error");
+                    log('[error adding ICE candidate: '+e.message+']');
                   }
                 }
-                pendingCandidates = []; // Clear after processing
-              } else {
-                log("[warning: remote description not set, queuing candidates]", "tx");
+                pendingCandidates = [];
               }
-            } catch (e) {
-              log(`[error processing ICE candidates: ${e.message}]`, "tx");
-            }
-            break;
-          case "answer":
-            try {
-              log(`[received answer: ${msg.sdp}]`, "rx");
-              await pc.setRemoteDescription({ type: "answer", sdp: msg.sdp });
-            } catch (e) {
-              log(`[error processing answer: ${e.message}]`, "error");
-            }
-            break;
-          case "candidate":
-            if (msg.candidate) {
-              const cand = new RTCIceCandidate(msg);
-              if (pc && pc.remoteDescription) {
-                try {
-                  await pc.addIceCandidate(cand);
-                  log(`[added ICE candidate: ${cand.candidate}]`, "rx");
-                } catch (e) {
-                  log(`[error adding ICE candidate: ${e.message}]`, "error");
+              break;
+            case 'answer':
+              await pc.setRemoteDescription({type:'answer', sdp:msg.sdp});
+              break;
+            case 'candidate':
+              if(msg.candidate) {
+                const cand = new RTCIceCandidate(msg);
+                if (pc && pc.remoteDescription) {
+                  try {
+                    await pc.addIceCandidate(cand);
+                  } catch (e) {
+                    log('[error adding ICE candidate: '+e.message+']');
+                  }
+                } else {
+                  pendingCandidates.push(cand);
                 }
-              } else {
-                pendingCandidates.push(cand);
-                log(`[queued ICE candidate ${cand.candidate}]`, "rx");
               }
-            }
-            break;
-          case "bye":
-            disconnect();
-            break;
-          default:
-            log(`[unknown message type: ${msg.type}]`, "rx");
-            break;
-        }
+              break;
+          }
+        };
+        ws.onclose = () => log('[ws closed]');
       };
-    };
 
-    reloadBtn.onclick = () => {
-      window.location.reload();
-    };
+      async function createPeer(isOfferer){
+        pc && pc.close();
+        const iceServers = await fetchTurn(apiKeyEl.value.trim());
+        pc = new RTCPeerConnection({iceServers/*, iceTransportPolicy:'relay'*/});
 
-    function disconnect() {
-      if (dc) { dc.close(); dc = null; }
-      if (pc) { pc.close(); pc = null; }
-      if (ws) { ws.close(); ws = null; }
-      // Don't call setUI(false), just log and leave UI as is
-      log("[disconnected]", "tx");
-    }
+        pc.onicecandidate = ({candidate}) => {
+          if(candidate && ws && ws.readyState === 1){
+            ws.send(JSON.stringify({type:'candidate', candidate:candidate.candidate, sdpMid:candidate.sdpMid, sdpMLineIndex:candidate.sdpMLineIndex}));
+          }
+        };
 
-    async function createPeer(isOfferer) {
-      if (pc) pc.close();
-      const rtcConfig = {
-        iceServers: await fetchTurn(),
-      };
-      if (relayOnlyInput.checked) {
-        rtcConfig.iceTransportPolicy = "relay";
-      }
-      log(`[ice servers: ${JSON.stringify(rtcConfig.iceServers)}]`, "tx");
-      pc = new RTCPeerConnection(rtcConfig);
-      pc.onicecandidate = (e) => {
-        if (e.candidate && ws && ws.readyState === 1) {
-          log(`[sending ICE candidate: ${e.candidate.candidate}]`, "tx");
-          ws.send(JSON.stringify({
-            type: "candidate",
-            candidate: e.candidate.candidate,
-            sdpMid: e.candidate.sdpMid,
-            sdpMLineIndex: e.candidate.sdpMLineIndex
-          }));
-        }
-      };
-      if (isOfferer) {
-        dc = pc.createDataChannel("chat");
-        setupDC();
-      } else {
-        pc.ondatachannel = (e) => {
-          dc = e.channel;
+        pc.onconnectionstatechange = () => {
+          log('[state] '+pc.connectionState);
+          if(pc.connectionState==='connected' && ws){ ws.close(); }
+        };
+
+        if(isOfferer){
+          dc = pc.createDataChannel('chat');
           setupDC();
+        } else {
+          pc.ondatachannel = (e)=>{ dc = e.channel; setupDC(); };
+        }
+      }
+
+      function setupDC(){
+        dc.onopen = () => { log('[data-channel open]'); msgWrapper.style.display=''; };
+        dc.onmessage = (e) => log('> '+e.data,'rx');
+        dc.onclose   = () => window.location.reload();
+
+        sendBtn.onclick = () => {
+          if(dc && dc.readyState==='open'){
+            const txt = msgEl.value;
+            if(txt){ dc.send(txt); log('< '+txt,'tx'); }
+          }
         };
       }
-      pc.onconnectionstatechange = () => {
-        log(`[connection state: ${pc.connectionState}]`, "tx");
-        if (pc.connectionState === "connected") {
-          // Close signaling WebSocket once WebRTC is up
-          if (ws && ws.readyState === 1) {
-            ws.close();
-            ws = null;
-          }
-        }
-        if (["disconnected", "failed", "closed"].includes(pc.connectionState)) {
-          disconnect();
-        }
-      };
-    }
-
-    function setupDC() {
-      dc.onopen = () => {
-        log("[datachannel open]", "rx");
-        sendBtn.disabled = false;
-      };
-      dc.onclose = () => {
-        log("[datachannel closed]", "tx");
-        sendBtn.disabled = true;
-      };
-      dc.onmessage = (e) => {
-        log("> " + e.data, "rx");
-      };
-    }
-
-    sendBtn.onclick = () => {
-      if (dc && dc.readyState === "open") {
-        const msg = msgInput.value;
-        if (msg) {
-          dc.send(msg);
-          log("< " + msg, "tx");
-          // Do not clear msgInput.value
-        }
-      }
-    };
-
-    async function fetchTurn() {
-      try {
-        const apiKey = apiKeyInput.value.trim();
-        const resp = await fetch("https://turnwebrtc.com/api/credentials", {
-          headers: { Authorization: "Basic " + btoa(apiKey + ":") }
-        });
-        if (!resp.ok) throw new Error("cred fetch failed");
-        return await resp.json();
-      } catch {
-        return [{ urls: ["stun:stun.l.google.com:19302"] }];
-      }
-    }
-  </script>
-</body>
+    </script>
+  </body>
 </html>
