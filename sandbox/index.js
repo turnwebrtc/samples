@@ -18,10 +18,13 @@ const sendMessageButton = document.getElementById("sendMessageButton");
 const offerRelayOnly = document.getElementById("offer-relayonly");
 const prefersOfferer = document.getElementById("offer-prefersofferer");
 
+dataChannelMessageTextField.value = "turnwebrtc" + Math.floor(Math.random() * 999 + 1);
+
 let pc;
 let localStream;
 let pendingCandidates;
 let dataChannel;
+let donegathering = false;
 
 function clearDatachannelLog() {
   dataChannelTextField.innerHTML = "";
@@ -125,10 +128,17 @@ class WebsocketChannel {
 
 const signaling = new WebsocketChannel("");
 
+// Hide hangup button initially
+hangupButton.style.display = "none";
+
 startButton.onclick = async () => {
   dataChannelTextField.innerHTML = "";
   if (roomTextbox.value.length < 1) {
     alert("you must enter a room");
+    return;
+  }
+  if (apiKeyTextbox.value.length < 1) {
+    alert("you must enter an API key. Try 'demo-api-key'");
     return;
   }
   if (offerLocalVideoCheckbox.checked) {
@@ -140,14 +150,15 @@ startButton.onclick = async () => {
     localStream = null;
   }
   localVideo.srcObject = localStream;
+  localVideo.style.display = localStream ? "block" : "none";
 
-  startButton.disabled = true;
-  hangupButton.disabled = false;
+  // Hide start button, show hangup button
+  startButton.style.display = "none";
+  hangupButton.style.display = "";
 
   // persist inputs
   setCookie("savedNamespace", roomTextbox.value, 365);
   setCookie("savedApiKey", apiKeyTextbox.value, 365);
-
 
   signaling.url =
     "wss://turnwebrtc.com/api/relay/" +
@@ -167,9 +178,6 @@ startButton.onclick = async () => {
       await pc.setLocalDescription(offer);
       signaling.postMessage({ type: "offer", sdp: offer.sdp });
       return;
-    }
-    if (!pc) {
-      await createPeerConnection();
     }
     switch (e.type) {
       case "offer":
@@ -194,7 +202,7 @@ startButton.onclick = async () => {
 };
 
 hangupButton.onclick = async () => {
-  hangup();
+  window.location.reload();
 };
 
 async function hangup() {
@@ -211,8 +219,10 @@ async function hangup() {
     pc = null;
   }
   signaling.close();
-  startButton.disabled = false;
-  hangupButton.disabled = true;
+  localVideo.style.display = "none";
+  // Restore start/hangup button display on reload
+  startButton.style.display = "";
+  hangupButton.style.display = "none";
   location.reload();
 }
 
@@ -265,6 +275,8 @@ async function createPeerConnection(offerer) {
       message.candidate = e.candidate.candidate;
       message.sdpMid = e.candidate.sdpMid;
       message.sdpMLineIndex = e.candidate.sdpMLineIndex;
+    } else {
+      donegathering = true;
     }
     console.log("generatedCandidate:", message.candidate);
     signaling.postMessage(message);
@@ -305,9 +317,7 @@ async function createPeerConnection(offerer) {
   pc.onconnectionstatechange = () => {
     switch (pc.connectionState) {
       case "connected":
-        signaling.close();
-        startButton.disabled = true;
-        hangupButton.disabled = false;
+        console.log("connected");
         break;
       case "disconnected":
       case "failed":
@@ -316,10 +326,7 @@ async function createPeerConnection(offerer) {
         for (let rv of rvElements) {
           rv.srcObject = null;
         }
-
         signaling.close();
-        startButton.disabled = false;
-        hangupButton.disabled = true;
         break;
       default:
         break;
@@ -350,17 +357,22 @@ async function createPeerConnection(offerer) {
 
 async function handleOffer(offer) {
   console.log("handleOffer:", offer);
-  await pc.setRemoteDescription(offer);
+  await createPeerConnection(false);
 
-  // flush candidates
-  for (let candidate of pendingCandidates) {
-    await pc.addIceCandidate(new RTCIceCandidate(candidate));
-  }
-  pendingCandidates = [];
+  await pc.setRemoteDescription(offer);
 
   const answer = await pc.createAnswer();
   signaling.postMessage({ type: "answer", sdp: answer.sdp });
   await pc.setLocalDescription(answer);
+
+  // flush candidates
+  for (let candidate of pendingCandidates) {
+    if (!candidate.candidate) {
+      await pc.addIceCandidate(null);
+    }
+    await pc.addIceCandidate(new RTCIceCandidate(candidate));
+  }
+  pendingCandidates = [];
 }
 
 async function handleAnswer(answer) {
@@ -381,6 +393,10 @@ async function handleCandidate(candidate) {
     }
   } else {
     pendingCandidates.push(candidate);
+  }
+
+  if (donegathering && (candidate.candidate == null || candidate.candidate.length < 1)) {
+    signaling.close();
   }
 }
 
@@ -421,5 +437,5 @@ apiKeyTextbox.addEventListener("input", () => {
 
 setupCheckboxSave("offer-datachannel", "offerdatachannel");
 setupCheckboxSave("offer-localvideo", "localvideo");
-setupCheckboxSave("offer-receivevideo", "receivevideo");
-setupCheckboxSave("offer-relayonly", "relayonly");
+// setupCheckboxSave("offer-receivevideo", "receivevideo");
+// setupCheckboxSave("offer-relayonly", "relayonly");
